@@ -15,33 +15,51 @@ defmodule ViaInputEvent.FrskyJoystick do
     ViaUtils.Comms.Supervisor.start_operator(__MODULE__)
     channel_map = Keyword.fetch!(config, :channel_map)
 
-    {joystick_input_name, joystick} = ViaInputEvent.Utils.find_device(@joystick_name)
-
-    if joystick_input_name == "", do: raise("Joystick #{@joystick_name} not found")
-    Logger.debug("found #{@joystick_name}: #{inspect(joystick)}")
-
-    InputEvent.start_link(joystick_input_name)
-    analog_min = Keyword.fetch!(config, :analog_value_min)
-    analog_max = Keyword.fetch!(config, :analog_value_max)
-    analog_range = analog_max - analog_min
-
     state = %{
-      joystick_input_name: joystick_input_name,
+      joystick_input_name: nil,
+      joystick: nil,
       num_channels: get_num_channels(channel_map),
       channel_map: channel_map,
-      analog_min_and_range: {analog_min, analog_range},
+      analog_min_and_range: nil,
       joystick_channels: Keyword.get(config, :default_values, %{}),
       publish_joystick_loop_interval_ms:
         Keyword.fetch!(config, :publish_joystick_loop_interval_ms),
       subscriber_groups: Keyword.fetch!(config, :subscriber_groups)
     }
 
-    GenServer.cast(
-      __MODULE__,
-      {@wait_for_all_channels_loop, Keyword.fetch!(config, :publish_joystick_loop_interval_ms)}
-    )
-
+    GenServer.cast(__MODULE__, {:connect_to_joystick, @joystick_name})
     {:ok, state}
+  end
+
+  def handle_cast({:connect_to_joystick, joystick_name}, state) do
+    {joystick_input_name, joystick} = ViaInputEvent.Utils.find_device(@joystick_name)
+
+    state =
+      if joystick_input_name == "" do
+        Logger.warn("Joystick #{@joystick_name} not found. Retrying in 1000ms.")
+        Process.sleep(1000)
+        GenServer.cast(self(), {:connect_to_joystick, joystick_name})
+        state
+      else
+        Logger.debug("found #{@joystick_name}: #{inspect(joystick)}")
+        InputEvent.start_link(joystick_input_name)
+        {analog_min, analog_max} = get_analog_min_max(joystick)
+        analog_range = analog_max - analog_min
+
+        GenServer.cast(
+          __MODULE__,
+          {@wait_for_all_channels_loop, state.publish_joystick_loop_interval_ms}
+        )
+
+        %{
+          state
+          | joystick_input_name: joystick_input_name,
+            joystick: joystick,
+            analog_min_and_range: {analog_min, analog_range}
+        }
+      end
+
+    {:noreply, state}
   end
 
   @impl GenServer
@@ -140,5 +158,11 @@ defmodule ViaInputEvent.FrskyJoystick do
     |> Enum.reduce([], fn {_k, v}, acc -> [v] ++ acc end)
     |> Enum.reverse()
     |> Enum.take(num_channels)
+  end
+
+  @spec get_analog_min_max(struct()) :: tuple()
+  def get_analog_min_max(joystick) do
+    stick_settings = joystick.report_info |> Keyword.fetch!(:ev_abs) |> Keyword.fetch!(:abs_x)
+    {stick_settings.min, stick_settings.max}
   end
 end

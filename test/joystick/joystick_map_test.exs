@@ -8,8 +8,6 @@ defmodule Joystick.JoystickMapTest do
 
   test "Open Joystick With Map" do
     config = [
-      analog_value_min: 0,
-      analog_value_max: 2047,
       channel_map: %{
         :abs_x => 0,
         :abs_y => 1,
