@@ -1,8 +1,7 @@
 defmodule ViaInputEvent.Keyboard do
   use GenServer
   require Logger
-  alias ViaInputEvent.KeypressAction, as: KA
-  alias ViaInputEvent.KeyType, as: KT
+  alias ViaInputEvent.KeyCollection, as: KC
 
   @publish_keyboard_loop :publish_keyboard_loop
   @wait_for_all_channels_loop :wait_for_all_channels_loop
@@ -21,7 +20,7 @@ defmodule ViaInputEvent.Keyboard do
       keyboard: nil,
       num_channels: get_num_channels(channel_map),
       channel_map: channel_map,
-      key_actions: Keyword.fetch!(config, :key_actions),
+      key_collections: Keyword.fetch!(config, :key_collections),
       key_map: Keyword.fetch!(config, :key_map),
       keyboard_channels: Keyword.get(config, :default_values, %{}),
       publish_keyboard_loop_interval_ms:
@@ -46,10 +45,10 @@ defmodule ViaInputEvent.Keyboard do
         Logger.debug("found keyboard: #{inspect(keyboard)}")
         InputEvent.start_link(keyboard_input_name)
 
-        # GenServer.cast(
-        #   __MODULE__,
-        #   {@wait_for_all_channels_loop, state.publish_keyboard_loop_interval_ms}
-        # )
+        GenServer.cast(
+          __MODULE__,
+          {@wait_for_all_channels_loop, state.publish_keyboard_loop_interval_ms}
+        )
 
         %{
           state
@@ -85,55 +84,50 @@ defmodule ViaInputEvent.Keyboard do
 
   @impl GenServer
   def handle_info({:input_event, _input_name, events}, state) do
-    Logger.debug("events: #{inspect(events)}")
     keyboard_channels = state.keyboard_channels
     key_map = state.key_map
-    key_actions = state.key_actions
+    key_collections = state.key_collections
     channel_map = state.channel_map
     pcl = round(Map.get(keyboard_channels, 5, -1) + 2)
 
-    Logger.debug("pcl: #{pcl}")
-
-    {keyboard_channels, key_actions} =
-      Enum.reduce(events, {keyboard_channels, key_actions}, fn event,
-                                                               {acc_keyboard_channels,
-                                                                acc_key_actions} ->
-        Logger.debug("event: #{inspect(event)}")
+    {keyboard_channels, key_collections} =
+      Enum.reduce(events, {keyboard_channels, key_collections}, fn event,
+                                                                   {acc_keyboard_channels,
+                                                                    acc_key_collections} ->
         {type, key, pressed} = event
 
         if type == :ev_key and pressed == 1 do
-          Logger.debug("key event: #{inspect(key)}")
-          {key_action_key, operation, args} = Map.fetch!(key_map, key)
+          key_operations = Map.get(key_map, key, [])
+          Enum.reduce(
+            key_operations,
+            {acc_keyboard_channels, acc_key_collections},
+            fn key_operation, {acc_acc_keyboard_channels, acc_acc_key_collections} ->
+              {key_collection_key, operation, args} = key_operation
 
-          Logger.debug("kAk: #{key_action_key}")
-          Logger.debug("opertion: #{operation}")
-          key_type = Map.fetch!(key_actions, key_action_key)
-          Logger.debug("key type: #{inspect(key_type)}")
-          {key_action, output} = KT.get_output(key_type, pcl, operation, args)
+              if is_nil(key_collection_key) do
+                {acc_acc_keyboard_channels, acc_acc_key_collections}
+              else
+                key_type = Map.fetch!(key_collections, key_collection_key)
+                {key_action, output} = KC.get_output(key_type, pcl, operation, args)
+                channel_number = Map.fetch!(channel_map, key_collection_key)
 
-          Logger.debug("key action: #{inspect(key_action)}")
-          Logger.debug("output: #{output}")
-          channel_number = Map.fetch!(channel_map, key_action_key)
-          Logger.debug("channeL_number: #{channel_number}")
-
-          {Map.put(acc_keyboard_channels, channel_number, output),
-           Map.put(key_actions, key_action_key, key_action)}
+                {Map.put(acc_acc_keyboard_channels, channel_number, output),
+                 Map.put(acc_acc_key_collections, key_collection_key, key_action)}
+              end
+            end
+          )
         else
-          {acc_keyboard_channels, acc_key_actions}
+          {acc_keyboard_channels, acc_key_collections}
         end
       end)
 
-    # state =
-    #   if input_name == state.keyboard_input_name do
-    #     channel_map = state.channel_map
-
-    {:noreply, %{state | keyboard_channels: keyboard_channels, key_actions: key_actions}}
+    {:noreply, %{state | keyboard_channels: keyboard_channels, key_collections: key_collections}}
   end
 
   @impl GenServer
   def handle_info(@publish_keyboard_loop, state) do
     channel_values = get_channels(state.keyboard_channels, state.num_channels)
-    Logger.debug("#{ViaUtils.Format.eftb_map(state.keyboard_channels, 3)}")
+    # Logger.debug("#{ViaUtils.Format.eftb_map(state.keyboard_channels, 3)}")
     # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
 
     Enum.each(state.subscriber_groups, fn group ->

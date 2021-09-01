@@ -1,16 +1,16 @@
-defmodule ViaInputEvent.KeyType do
-  alias ViaInputEvent.KeyType
+defmodule ViaInputEvent.KeyCollection do
+  alias ViaInputEvent.KeyCollection
   alias ViaInputEvent.KeypressAction, as: KA
 
   defstruct scope: nil,
             actions: nil
 
   def new_all(action) do
-    %KeyType{scope: :all, actions: action}
+    %KeyCollection{scope: :all, actions: action}
   end
 
   def new_pcl(action_pcl1, action_pcl2, action_pcl3) do
-    %KeyType{
+    %KeyCollection{
       scope: :pcl,
       actions: %{
         1 => action_pcl1,
