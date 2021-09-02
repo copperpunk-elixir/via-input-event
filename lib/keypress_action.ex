@@ -1,5 +1,6 @@
 defmodule ViaInputEvent.KeypressAction do
   alias ViaInputEvent.KeypressAction
+  require Logger
 
   defstruct min_value: nil,
             max_value: nil,
@@ -7,9 +8,6 @@ defmodule ViaInputEvent.KeypressAction do
             multiplier: nil,
             value: nil
 
-  # @discrete :discrete
-  # @cyclic :cyclic
-  # @toggle :toggle
   @output_min -1
   @output_max 1
 
@@ -23,23 +21,8 @@ defmodule ViaInputEvent.KeypressAction do
       delta_value: delta_value,
       multiplier: multiplier,
       value: starting_value
-      # type: @discrete
     }
   end
-
-  # @spec new_cyclic(number(), number(), number(), number()) :: struct()
-  # def new_cyclic(min_value, max_value, delta_value, starting_value) do
-  #   multiplier = (@output_max - @output_min) / (max_value - min_value)
-
-  #   %KeypressAction{
-  #     min_value: min_value,
-  #     max_value: max_value,
-  #     delta_value: delta_value,
-  #     multiplier: multiplier,
-  #     value: starting_value,
-  #     type: @cyclic
-  #   }
-  # end
 
   @spec new_toggle(number()) :: struct()
   def new_toggle(starting_value) do
@@ -48,7 +31,6 @@ defmodule ViaInputEvent.KeypressAction do
       max_value: 1,
       multiplier: 1,
       value: starting_value
-      # type: @toggle
     }
   end
 
@@ -90,8 +72,29 @@ defmodule ViaInputEvent.KeypressAction do
     {%{key | value: value}, output}
   end
 
+  @spec set_value_for_output(struct(), number()) :: tuple()
+  def set_value_for_output(key, output) do
+    value = get_value_for_output(key, output)
+    {%{key | value: value}, output}
+  end
+
+  @spec get(struct()) :: tuple()
+  def get(key) do
+    {key, key.value}
+  end
+
+  @spec get_output(struct()) :: tuple()
+  def get_output(key) do
+    {key, get_output_for_value(key, key.value)}
+  end
+
   @spec get_output_for_value(struct(), number()) :: number()
   def get_output_for_value(key, x) do
     (x - key.min_value) * key.multiplier + @output_min
+  end
+
+  @spec get_value_for_output(struct(), number()) :: number()
+  def get_value_for_output(key, x) do
+    (x - @output_min) / key.multiplier + key.min_value
   end
 end

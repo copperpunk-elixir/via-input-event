@@ -52,19 +52,22 @@ defmodule Keyboard.KeyboardMapTest do
           {:pcl, :set, [1]},
           {:roll_axis, :set, [0]},
           {:pitch_axis, :set, [0]},
-          {:yaw_axis, :set, [0]}
+          {:yaw_axis, :set, [0]},
+          {:thrust_axis, :set_value_for_output, :pcl_hold}
         ],
         key_2: [
           {:pcl, :set, [2]},
           {:roll_axis, :set, [0]},
           {:pitch_axis, :set, [0]},
-          {:yaw_axis, :set, [0]}
+          {:yaw_axis, :set, [0]},
+          {:thrust_axis, :set_value_for_output, :pcl_hold}
         ],
         key_4: [
           {:pcl, :set, [4]},
           {:roll_axis, :set, [0]},
           {:pitch_axis, :set, [0]},
-          {:yaw_axis, :set, [0]}
+          {:yaw_axis, :set, [0]},
+          {:thrust_axis, :set_value_for_output, :pcl_hold}
         ],
         key_f: [{:flaps, :increment, []}],
         key_g: [{:gear, :toggle, []}],

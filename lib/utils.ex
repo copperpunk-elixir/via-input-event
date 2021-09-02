@@ -35,15 +35,28 @@ defmodule ViaInputEvent.Utils do
     end
   end
 
+  @spec find_keyboard() :: tuple()
   def find_keyboard() do
     all_devices =
       Enum.reduce(InputEvent.enumerate(), [], fn {event, device}, acc ->
-        # if String.contains?(device.name, "raspberry"), do: acc, else: acc ++ [{event, device}]
-        if String.contains?(String.downcase(device.name), "ergo"), do: acc, else: acc ++ [{event, device}]
+        device_name = String.downcase(device.name)
+
+        if String.contains?(device_name, ["raspberry", "ergo", "frsky"]),
+          do: acc,
+          else: acc ++ [{event, device}]
+
+        # cond do
+        #   String.contains?(device_name, "raspberry") -> acc
+        #   String.contains?(device_name, "ergo") -> acc
+        #   true -> acc ++ [{event, device}]
+        # end
       end)
 
-    Logger.debug("all dveices: #{inspect(all_devices)}")
-    find_keyboard(all_devices, {"",nil}, 0)
+    if Enum.empty?(all_devices) do
+      {"", nil}
+    else
+      find_keyboard(all_devices, {"", nil}, 0)
+    end
   end
 
   def find_keyboard(devices, current_device, longest_key_list) do

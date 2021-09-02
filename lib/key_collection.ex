@@ -1,6 +1,7 @@
 defmodule ViaInputEvent.KeyCollection do
   alias ViaInputEvent.KeyCollection
   alias ViaInputEvent.KeypressAction, as: KA
+  require Logger
 
   defstruct scope: nil,
             actions: nil
@@ -9,30 +10,30 @@ defmodule ViaInputEvent.KeyCollection do
     %KeyCollection{scope: :all, actions: action}
   end
 
-  def new_pcl(action_pcl1, action_pcl2, action_pcl3) do
+  def new_pcl(action_pcl1, action_pcl2, action_pcl4) do
     %KeyCollection{
       scope: :pcl,
       actions: %{
         1 => action_pcl1,
         2 => action_pcl2,
-        3 => action_pcl3
+        4 => action_pcl4
       }
     }
   end
 
-  def get_output(key_type, pcl, operation, args) do
-    case key_type.scope do
+  def get_output(key_collection, pcl, operation, args) do
+    case key_collection.scope do
       :all ->
-        action = key_type.actions
+        action = key_collection.actions
         {action, output} = apply(KA, operation, [action] ++ args)
-        {%{key_type | actions: action}, output}
+        {%{key_collection | actions: action}, output}
 
       :pcl ->
-        actions = key_type.actions
+        actions = key_collection.actions
         action = Map.fetch!(actions, pcl)
         {action, output} = apply(KA, operation, [action] ++ args)
         actions = Map.put(actions, pcl, action)
-        {%{key_type | actions: actions}, output}
+        {%{key_collection | actions: actions}, output}
     end
   end
 end

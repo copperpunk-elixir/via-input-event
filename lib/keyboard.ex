@@ -3,8 +3,10 @@ defmodule ViaInputEvent.Keyboard do
   require Logger
   alias ViaInputEvent.KeyCollection, as: KC
 
+  @connect_to_keyboard_loop :connect_to_keyboard_loop
   @publish_keyboard_loop :publish_keyboard_loop
   @wait_for_all_channels_loop :wait_for_all_channels_loop
+  @remote_input_found_group :remote_input_found
 
   def start_link(config) do
     ViaUtils.Process.start_link_redundant(GenServer, __MODULE__, config, __MODULE__)
@@ -14,6 +16,13 @@ defmodule ViaInputEvent.Keyboard do
   def init(config) do
     ViaUtils.Comms.Supervisor.start_operator(__MODULE__)
     channel_map = Keyword.fetch!(config, :channel_map)
+
+    connect_keyboard_timer =
+      ViaUtils.Process.start_loop(
+        self(),
+        1000,
+        @connect_to_keyboard_loop
+      )
 
     state = %{
       keyboard_input_name: nil,
@@ -25,25 +34,35 @@ defmodule ViaInputEvent.Keyboard do
       keyboard_channels: Keyword.get(config, :default_values, %{}),
       publish_keyboard_loop_interval_ms:
         Keyword.fetch!(config, :publish_keyboard_loop_interval_ms),
-      subscriber_groups: Keyword.fetch!(config, :subscriber_groups)
+      subscriber_groups: Keyword.fetch!(config, :subscriber_groups),
+      connect_keyboard_timer: connect_keyboard_timer
     }
 
-    GenServer.cast(__MODULE__, :connect_to_keyboard)
+    ViaUtils.Comms.join_group(__MODULE__, @remote_input_found_group, self())
     {:ok, state}
   end
 
-  def handle_cast(:connect_to_keyboard, state) do
+  def handle_info(@connect_to_keyboard_loop, state) do
     {keyboard_input_name, keyboard} = ViaInputEvent.Utils.find_keyboard()
 
     state =
       if is_nil(keyboard) do
         Logger.warn("Keyboard not found. Retrying in 1000ms.")
         Process.sleep(1000)
-        GenServer.cast(self(), :connect_to_keyboard)
+        # GenServer.cast(self(), :connect_to_keyboard)
         state
       else
         Logger.debug("found keyboard: #{inspect(keyboard)}")
         InputEvent.start_link(keyboard_input_name)
+
+        connect_keyboard_timer = ViaUtils.Process.stop_loop(state.connect_keyboard_timer)
+
+        ViaUtils.Comms.send_local_msg_to_group(
+          __MODULE__,
+          @remote_input_found_group,
+          @remote_input_found_group,
+          self()
+        )
 
         GenServer.cast(
           __MODULE__,
@@ -53,11 +72,94 @@ defmodule ViaInputEvent.Keyboard do
         %{
           state
           | keyboard_input_name: keyboard_input_name,
-            keyboard: keyboard
+            keyboard: keyboard,
+            connect_keyboard_timer: connect_keyboard_timer
         }
       end
 
     {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_info({:input_event, _input_name, events}, state) do
+    keyboard_channels = state.keyboard_channels
+    key_map = state.key_map
+    key_collections = state.key_collections
+    channel_map = state.channel_map
+    pcl = round((Map.get(keyboard_channels, 5, -1) + 1) * 1.5) + 1
+
+    {keyboard_channels, key_collections} =
+      Enum.reduce(events, {keyboard_channels, key_collections}, fn event,
+                                                                   {acc_keyboard_channels,
+                                                                    acc_key_collections} ->
+        {type, key, pressed} = event
+
+        if type == :ev_key and pressed == 1 do
+          key_operations = Map.get(key_map, key, [])
+          first_operation = Enum.at(key_operations, 0)
+
+          new_pcl =
+            if length(key_operations) > 0 and elem(first_operation, 0) == :pcl do
+              elem(first_operation, 2) |> Enum.at(0)
+            else
+              pcl
+            end
+
+          Enum.reduce(
+            key_operations,
+            {acc_keyboard_channels, acc_key_collections},
+            fn key_operation, {acc_acc_keyboard_channels, acc_acc_key_collections} ->
+              {key_collection_key, operation, args} = key_operation
+
+              if is_nil(key_collection_key) do
+                {acc_acc_keyboard_channels, acc_acc_key_collections}
+              else
+                key_type = Map.fetch!(key_collections, key_collection_key)
+
+                args =
+                  if key_collection_key == :thrust_axis and args == :pcl_hold do
+                    {_, output} = KC.get_output(key_type, pcl, :get_output, [])
+                    [output]
+                  else
+                    args
+                  end
+
+                {key_action, output} = KC.get_output(key_type, new_pcl, operation, args)
+                channel_number = Map.fetch!(channel_map, key_collection_key)
+
+                {Map.put(acc_acc_keyboard_channels, channel_number, output),
+                 Map.put(acc_acc_key_collections, key_collection_key, key_action)}
+              end
+            end
+          )
+        else
+          {acc_keyboard_channels, acc_key_collections}
+        end
+      end)
+
+    {:noreply, %{state | keyboard_channels: keyboard_channels, key_collections: key_collections}}
+  end
+
+  @impl GenServer
+  def handle_info(@publish_keyboard_loop, state) do
+    channel_values = get_channels(state.keyboard_channels, state.num_channels)
+
+    Enum.each(state.subscriber_groups, fn group ->
+      ViaUtils.Comms.send_local_msg_to_group(
+        __MODULE__,
+        {group, channel_values},
+        self()
+      )
+    end)
+
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_cast(@remote_input_found_group, state) do
+    Logger.debug("Other input found. Stop connect_keyboard loop.")
+    connect_keyboard_timer = ViaUtils.Process.stop_loop(state.connect_keyboard_timer)
+    {:noreply, %{state | connect_keyboard_timer: connect_keyboard_timer}}
   end
 
   @impl GenServer
@@ -78,65 +180,6 @@ defmodule ViaInputEvent.Keyboard do
         {@wait_for_all_channels_loop, publish_keyboard_loop_interval_ms}
       )
     end
-
-    {:noreply, state}
-  end
-
-  @impl GenServer
-  def handle_info({:input_event, _input_name, events}, state) do
-    keyboard_channels = state.keyboard_channels
-    key_map = state.key_map
-    key_collections = state.key_collections
-    channel_map = state.channel_map
-    pcl = round(Map.get(keyboard_channels, 5, -1) + 2)
-
-    {keyboard_channels, key_collections} =
-      Enum.reduce(events, {keyboard_channels, key_collections}, fn event,
-                                                                   {acc_keyboard_channels,
-                                                                    acc_key_collections} ->
-        {type, key, pressed} = event
-
-        if type == :ev_key and pressed == 1 do
-          key_operations = Map.get(key_map, key, [])
-          Enum.reduce(
-            key_operations,
-            {acc_keyboard_channels, acc_key_collections},
-            fn key_operation, {acc_acc_keyboard_channels, acc_acc_key_collections} ->
-              {key_collection_key, operation, args} = key_operation
-
-              if is_nil(key_collection_key) do
-                {acc_acc_keyboard_channels, acc_acc_key_collections}
-              else
-                key_type = Map.fetch!(key_collections, key_collection_key)
-                {key_action, output} = KC.get_output(key_type, pcl, operation, args)
-                channel_number = Map.fetch!(channel_map, key_collection_key)
-
-                {Map.put(acc_acc_keyboard_channels, channel_number, output),
-                 Map.put(acc_acc_key_collections, key_collection_key, key_action)}
-              end
-            end
-          )
-        else
-          {acc_keyboard_channels, acc_key_collections}
-        end
-      end)
-
-    {:noreply, %{state | keyboard_channels: keyboard_channels, key_collections: key_collections}}
-  end
-
-  @impl GenServer
-  def handle_info(@publish_keyboard_loop, state) do
-    channel_values = get_channels(state.keyboard_channels, state.num_channels)
-    # Logger.debug("#{ViaUtils.Format.eftb_map(state.keyboard_channels, 3)}")
-    # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
-
-    Enum.each(state.subscriber_groups, fn group ->
-      ViaUtils.Comms.send_local_msg_to_group(
-        __MODULE__,
-        {group, channel_values},
-        self()
-      )
-    end)
 
     {:noreply, state}
   end

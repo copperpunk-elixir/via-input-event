@@ -3,8 +3,10 @@ defmodule ViaInputEvent.FrskyJoystick do
   require Logger
 
   @joystick_name "frsky"
+  @connect_to_joystick_loop :connect_to_joystick_loop
   @publish_joystick_loop :publish_joystick_loop
   @wait_for_all_channels_loop :wait_for_all_channels_loop
+  @remote_input_found_group :remote_input_found
 
   def start_link(config) do
     ViaUtils.Process.start_link_redundant(GenServer, __MODULE__, config, __MODULE__)
@@ -15,6 +17,13 @@ defmodule ViaInputEvent.FrskyJoystick do
     ViaUtils.Comms.Supervisor.start_operator(__MODULE__)
     channel_map = Keyword.fetch!(config, :channel_map)
 
+    connect_joystick_timer =
+      ViaUtils.Process.start_loop(
+        self(),
+        1000,
+        @connect_to_joystick_loop
+      )
+
     state = %{
       joystick_input_name: nil,
       joystick: nil,
@@ -24,27 +33,36 @@ defmodule ViaInputEvent.FrskyJoystick do
       joystick_channels: Keyword.get(config, :default_values, %{}),
       publish_joystick_loop_interval_ms:
         Keyword.fetch!(config, :publish_joystick_loop_interval_ms),
-      subscriber_groups: Keyword.fetch!(config, :subscriber_groups)
+      subscriber_groups: Keyword.fetch!(config, :subscriber_groups),
+      connect_joystick_timer: connect_joystick_timer
     }
 
-    GenServer.cast(__MODULE__, {:connect_to_joystick, @joystick_name})
+    ViaUtils.Comms.join_group(__MODULE__, @remote_input_found_group, self())
     {:ok, state}
   end
 
-  def handle_cast({:connect_to_joystick, joystick_name}, state) do
+  def handle_info(@connect_to_joystick_loop, state) do
     {joystick_input_name, joystick} = ViaInputEvent.Utils.find_device(@joystick_name)
 
     state =
       if joystick_input_name == "" do
         Logger.warn("Joystick #{@joystick_name} not found. Retrying in 1000ms.")
         Process.sleep(1000)
-        GenServer.cast(self(), {:connect_to_joystick, joystick_name})
         state
       else
         Logger.debug("found #{@joystick_name}: #{inspect(joystick)}")
         InputEvent.start_link(joystick_input_name)
         {analog_min, analog_max} = get_analog_min_max(joystick)
         analog_range = analog_max - analog_min
+
+        connect_joystick_timer = ViaUtils.Process.stop_loop(state.connect_joystick_timer)
+
+        ViaUtils.Comms.send_local_msg_to_group(
+          __MODULE__,
+          @remote_input_found_group,
+          @remote_input_found_group,
+          self()
+        )
 
         GenServer.cast(
           __MODULE__,
@@ -55,31 +73,10 @@ defmodule ViaInputEvent.FrskyJoystick do
           state
           | joystick_input_name: joystick_input_name,
             joystick: joystick,
-            analog_min_and_range: {analog_min, analog_range}
+            analog_min_and_range: {analog_min, analog_range},
+            connect_joystick_timer: connect_joystick_timer
         }
       end
-
-    {:noreply, state}
-  end
-
-  @impl GenServer
-  def handle_cast({@wait_for_all_channels_loop, publish_joystick_loop_interval_ms}, state) do
-    Logger.debug("wait for channels. currently have: #{inspect(state.joystick_channels)}")
-
-    if length(get_channels(state.joystick_channels, state.num_channels)) == state.num_channels do
-      ViaUtils.Process.start_loop(
-        self(),
-        publish_joystick_loop_interval_ms,
-        @publish_joystick_loop
-      )
-    else
-      Process.sleep(100)
-
-      GenServer.cast(
-        __MODULE__,
-        {@wait_for_all_channels_loop, publish_joystick_loop_interval_ms}
-      )
-    end
 
     {:noreply, state}
   end
@@ -128,7 +125,7 @@ defmodule ViaInputEvent.FrskyJoystick do
   @impl GenServer
   def handle_info(@publish_joystick_loop, state) do
     channel_values = get_channels(state.joystick_channels, state.num_channels)
-    Logger.debug("#{ViaUtils.Format.eftb_map(state.joystick_channels, 3)}")
+    # Logger.debug("#{ViaUtils.Format.eftb_map(state.joystick_channels, 3)}")
     # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
 
     Enum.each(state.subscriber_groups, fn group ->
@@ -138,6 +135,35 @@ defmodule ViaInputEvent.FrskyJoystick do
         self()
       )
     end)
+
+    {:noreply, state}
+  end
+
+  @impl GenServer
+  def handle_cast(@remote_input_found_group, state) do
+    Logger.debug("Other input found. Stop connect_keyboard loop.")
+    connect_joystick_timer = ViaUtils.Process.stop_loop(state.connect_joystick_timer)
+    {:noreply, %{state | connect_joystick_timer: connect_joystick_timer}}
+  end
+
+  @impl GenServer
+  def handle_cast({@wait_for_all_channels_loop, publish_joystick_loop_interval_ms}, state) do
+    Logger.debug("wait for channels. currently have: #{inspect(state.joystick_channels)}")
+
+    if length(get_channels(state.joystick_channels, state.num_channels)) == state.num_channels do
+      ViaUtils.Process.start_loop(
+        self(),
+        publish_joystick_loop_interval_ms,
+        @publish_joystick_loop
+      )
+    else
+      Process.sleep(100)
+
+      GenServer.cast(
+        __MODULE__,
+        {@wait_for_all_channels_loop, publish_joystick_loop_interval_ms}
+      )
+    end
 
     {:noreply, state}
   end
