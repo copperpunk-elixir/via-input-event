@@ -1,8 +1,8 @@
-defmodule ViaInputEvent.FrskyJoystick do
+defmodule ViaInputEvent.Joystick do
   use GenServer
   require Logger
 
-  @joystick_name "frsky"
+  @joystick_name ["frsky", "spektrum"]
   @connect_to_joystick_loop :connect_to_joystick_loop
   @publish_joystick_loop :publish_joystick_loop
   @wait_for_all_channels_loop :wait_for_all_channels_loop
@@ -29,7 +29,7 @@ defmodule ViaInputEvent.FrskyJoystick do
       joystick: nil,
       num_channels: get_num_channels(channel_map),
       channel_map: channel_map,
-      analog_min_and_range: nil,
+      analog_min_and_range: %{},
       joystick_channels: Keyword.get(config, :default_values, %{}),
       publish_joystick_loop_interval_ms:
         Keyword.fetch!(config, :publish_joystick_loop_interval_ms),
@@ -52,8 +52,19 @@ defmodule ViaInputEvent.FrskyJoystick do
       else
         Logger.debug("found #{@joystick_name}: #{inspect(joystick)}")
         InputEvent.start_link(joystick_input_name)
-        {analog_min, analog_max} = get_analog_min_max(joystick)
-        analog_range = analog_max - analog_min
+        joystick_report_info = joystick.report_info
+
+        analog_min_and_range =
+          Enum.reduce(state.channel_map, %{}, fn {key, _channel}, acc ->
+            {analog_min, analog_max} = get_analog_min_max(joystick_report_info, key)
+
+            if is_nil(analog_min) do
+              acc
+            else
+              analog_range = analog_max - analog_min
+              Map.put(acc, key, {analog_min, analog_range})
+            end
+          end)
 
         connect_joystick_timer = ViaUtils.Process.stop_loop(state.connect_joystick_timer)
 
@@ -73,7 +84,7 @@ defmodule ViaInputEvent.FrskyJoystick do
           state
           | joystick_input_name: joystick_input_name,
             joystick: joystick,
-            analog_min_and_range: {analog_min, analog_range},
+            analog_min_and_range: analog_min_and_range,
             connect_joystick_timer: connect_joystick_timer
         }
       end
@@ -87,8 +98,6 @@ defmodule ViaInputEvent.FrskyJoystick do
       if input_name == state.joystick_input_name do
         channel_map = state.channel_map
 
-        {analog_min, analog_range} = state.analog_min_and_range
-
         joystick_channels =
           Enum.reduce(events, state.joystick_channels, fn {type, channel, value}, acc ->
             # Logger.debug("event rx: #{input_name}:#{type}/#{channel}/#{value}")
@@ -99,6 +108,9 @@ defmodule ViaInputEvent.FrskyJoystick do
             else
               case type do
                 :ev_abs ->
+                  {analog_min, analog_range} = state.analog_min_and_range |> Map.fetch!(channel)
+                  # Logger.debug("ch/min/range: #{channel}/#{analog_min}/#{analog_range}")
+
                   Map.put(
                     acc,
                     channel_number,
@@ -190,5 +202,12 @@ defmodule ViaInputEvent.FrskyJoystick do
   def get_analog_min_max(joystick) do
     stick_settings = joystick.report_info |> Keyword.fetch!(:ev_abs) |> Keyword.fetch!(:abs_x)
     {stick_settings.min, stick_settings.max}
+  end
+
+  @spec get_analog_min_max(list(), atom()) :: tuple()
+  def get_analog_min_max(joystick_report_info, key) do
+    stick_settings = joystick_report_info |> Keyword.fetch!(:ev_abs) |> Keyword.get(key, %{})
+
+    {Map.get(stick_settings, :min), Map.get(stick_settings, :max)}
   end
 end

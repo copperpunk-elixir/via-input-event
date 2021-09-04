@@ -143,6 +143,7 @@ defmodule ViaInputEvent.Keyboard do
   @impl GenServer
   def handle_info(@publish_keyboard_loop, state) do
     channel_values = get_channels(state.keyboard_channels, state.num_channels)
+    # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
 
     Enum.each(state.subscriber_groups, fn group ->
       ViaUtils.Comms.send_local_msg_to_group(

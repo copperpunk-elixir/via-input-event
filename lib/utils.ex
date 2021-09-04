@@ -1,6 +1,8 @@
 defmodule ViaInputEvent.Utils do
   require Logger
 
+  @devices_to_ignore_for_keyboard ["raspberry", "ergo", "frsky","spektrum"]
+
   def find_device(device_name, devices \\ InputEvent.enumerate()) do
     {[{input_name, device_info}], remaining_devices} = Enum.split(devices, 1)
 
@@ -41,7 +43,7 @@ defmodule ViaInputEvent.Utils do
       Enum.reduce(InputEvent.enumerate(), [], fn {event, device}, acc ->
         device_name = String.downcase(device.name)
 
-        if String.contains?(device_name, ["raspberry", "ergo", "frsky"]),
+        if String.contains?(device_name, @devices_to_ignore_for_keyboard),
           do: acc,
           else: acc ++ [{event, device}]
 

@@ -21,7 +21,7 @@ defmodule Joystick.JoystickMapTest do
       default_values: %{
         0 => 0,
         1 => 0,
-        2 => 0,
+        2 => -1.0,
         3 => 0,
         4 => -1,
         5 => -1,
@@ -34,7 +34,7 @@ defmodule Joystick.JoystickMapTest do
       publish_joystick_loop_interval_ms: 20
     ]
 
-    ViaInputEvent.FrskyJoystick.start_link(config)
+    ViaInputEvent.Joystick.start_link(config)
     Process.sleep(1_000_000)
   end
 end
