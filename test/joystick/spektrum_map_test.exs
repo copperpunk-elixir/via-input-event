@@ -1,4 +1,4 @@
-defmodule Joystick.JoystickMapTest do
+defmodule Joystick.SpektrumMapTest do
   use ExUnit.Case
 
   setup %{} do
@@ -9,14 +9,17 @@ defmodule Joystick.JoystickMapTest do
   test "Open Joystick With Map" do
     config = [
       channel_map: %{
-        :abs_x => 0,
-        :abs_y => 1,
-        :abs_z => 2,
-        :abs_rx => 3,
-        :abs_ry => 4,
-        :abs_rz => 5,
-        :abs_throttle => 6,
-        :btn_b => 9
+        Spektrum: %{
+          multiplier: 1/0.662,
+          abs_z: 0,
+          abs_rx: 1,
+          abs_y: 2,
+          abs_x: 3,
+          abs_ry: 4,
+          abs_throttle: 5,
+          none: 6,
+          btn_rz: 9
+        }
       },
       default_values: %{
         0 => 0,

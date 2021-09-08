@@ -1,14 +1,25 @@
 defmodule ViaInputEvent.Utils do
   require Logger
 
-  @devices_to_ignore_for_keyboard ["raspberry", "ergo", "frsky","spektrum"]
+  @devices_to_ignore_for_keyboard ["raspberry", "ergo", "frsky", "spektrum"]
+
+  def find_device(device_names) when is_list(device_names) do
+    {[device_name], remaining_devices} = Enum.split(device_names, 1)
+    Logger.warn("seatch for #{device_name}")
+    case find_device(device_name) do
+      {"", nil} ->
+        if Enum.empty?(remaining_devices), do: {"","", nil}, else: find_device(remaining_devices)
+
+      {input_name, device_info} -> {input_name, device_name, device_info}
+    end
+  end
 
   def find_device(device_name, devices \\ InputEvent.enumerate()) do
     {[{input_name, device_info}], remaining_devices} = Enum.split(devices, 1)
-
+    device_name = String.downcase(device_name)
     cond do
       String.contains?(String.downcase(device_info.name), device_name) ->
-        # Logger.debug("Found #{device_name} at #{input_name}")
+        Logger.debug("Found #{inspect(device_name)} at #{input_name}")
         {input_name, device_info}
 
       Enum.empty?(remaining_devices) ->

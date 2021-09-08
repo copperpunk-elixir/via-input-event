@@ -2,7 +2,7 @@ defmodule ViaInputEvent.Joystick do
   use GenServer
   require Logger
 
-  @joystick_name ["frsky", "spektrum"]
+  # @joystick_name ["frsky", "spektrum"]
   @connect_to_joystick_loop :connect_to_joystick_loop
   @publish_joystick_loop :publish_joystick_loop
   @wait_for_all_channels_loop :wait_for_all_channels_loop
@@ -27,7 +27,7 @@ defmodule ViaInputEvent.Joystick do
     state = %{
       joystick_input_name: nil,
       joystick: nil,
-      num_channels: get_num_channels(channel_map),
+      num_channels: nil,
       channel_map: channel_map,
       analog_min_and_range: %{},
       joystick_channels: Keyword.get(config, :default_values, %{}),
@@ -42,20 +42,35 @@ defmodule ViaInputEvent.Joystick do
   end
 
   def handle_info(@connect_to_joystick_loop, state) do
-    {joystick_input_name, joystick} = ViaInputEvent.Utils.find_device(@joystick_name)
+    joystick_names_to_search =
+      Enum.map(state.channel_map, fn {key, _map} ->
+        Atom.to_string(key)
+      end)
+
+    Logger.info("names to search #{inspect(joystick_names_to_search)}")
+
+    {joystick_input_name, joystick_module_name, joystick} =
+      ViaInputEvent.Utils.find_device(joystick_names_to_search)
 
     state =
       if joystick_input_name == "" do
-        Logger.warn("Joystick #{@joystick_name} not found. Retrying in 1000ms.")
+        Logger.warn(
+          "Joystick #{inspect(joystick_names_to_search)} not found. Retrying in 1000ms."
+        )
+
         Process.sleep(1000)
         state
       else
-        Logger.debug("found #{@joystick_name}: #{inspect(joystick)}")
+        Logger.debug("found #{inspect(joystick_input_name)}: #{inspect(joystick)}")
         InputEvent.start_link(joystick_input_name)
         joystick_report_info = joystick.report_info
+        joystick_map_key = String.to_atom(joystick_module_name)
+        channel_map = Map.fetch!(state.channel_map, joystick_map_key)
+        num_channels = get_num_channels(channel_map)
+        Logger.debug("Channel map: #{inspect(channel_map)}")
 
         analog_min_and_range =
-          Enum.reduce(state.channel_map, %{}, fn {key, _channel}, acc ->
+          Enum.reduce(channel_map, %{}, fn {key, _channel}, acc ->
             {analog_min, analog_max} = get_analog_min_max(joystick_report_info, key)
 
             if is_nil(analog_min) do
@@ -85,7 +100,9 @@ defmodule ViaInputEvent.Joystick do
           | joystick_input_name: joystick_input_name,
             joystick: joystick,
             analog_min_and_range: analog_min_and_range,
-            connect_joystick_timer: connect_joystick_timer
+            connect_joystick_timer: connect_joystick_timer,
+            channel_map: channel_map,
+            num_channels: num_channels
         }
       end
 
@@ -97,10 +114,11 @@ defmodule ViaInputEvent.Joystick do
     state =
       if input_name == state.joystick_input_name do
         channel_map = state.channel_map
+        multiplier = Map.get(channel_map, :multiplier, 1)
 
         joystick_channels =
           Enum.reduce(events, state.joystick_channels, fn {type, channel, value}, acc ->
-            # Logger.debug("event rx: #{input_name}:#{type}/#{channel}/#{value}")
+            Logger.debug("event rx: #{input_name}:#{type}/#{channel}/#{value}")
             channel_number = Map.get(channel_map, channel, nil)
 
             if is_nil(channel_number) do
@@ -109,16 +127,24 @@ defmodule ViaInputEvent.Joystick do
               case type do
                 :ev_abs ->
                   {analog_min, analog_range} = state.analog_min_and_range |> Map.fetch!(channel)
-                  # Logger.debug("ch/min/range: #{channel}/#{analog_min}/#{analog_range}")
+                  Logger.debug("ch/min/range: #{channel}/#{analog_min}/#{analog_range}")
+
+                  value =
+                    (multiplier * (2 * (value - analog_min) / analog_range - 1))
+                    |> ViaUtils.Math.constrain(-1, 1)
 
                   Map.put(
                     acc,
                     channel_number,
-                    2 * (value - analog_min) / analog_range - 1
+                    value
                   )
 
                 :ev_key ->
-                  Map.put(acc, channel_number, 2 * value - 1)
+                  value =
+                    (2 * value - 1)
+                    |> ViaUtils.Math.constrain(-1, 1)
+
+                  Map.put(acc, channel_number, value)
 
                 other ->
                   Logger.warn("unsupported type: #{inspect(other)}")
@@ -138,7 +164,7 @@ defmodule ViaInputEvent.Joystick do
   def handle_info(@publish_joystick_loop, state) do
     channel_values = get_channels(state.joystick_channels, state.num_channels)
     # Logger.debug("#{ViaUtils.Format.eftb_map(state.joystick_channels, 3)}")
-    # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
+    Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
 
     Enum.each(state.subscriber_groups, fn group ->
       ViaUtils.Comms.send_local_msg_to_group(
