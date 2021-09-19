@@ -118,7 +118,7 @@ defmodule ViaInputEvent.Joystick do
 
         joystick_channels =
           Enum.reduce(events, state.joystick_channels, fn {type, channel, value}, acc ->
-            Logger.debug("event rx: #{input_name}:#{type}/#{channel}/#{value}")
+            # Logger.debug("event rx: #{input_name}:#{type}/#{channel}/#{value}")
             channel_number = Map.get(channel_map, channel, nil)
 
             if is_nil(channel_number) do
@@ -127,7 +127,7 @@ defmodule ViaInputEvent.Joystick do
               case type do
                 :ev_abs ->
                   {analog_min, analog_range} = state.analog_min_and_range |> Map.fetch!(channel)
-                  Logger.debug("ch/min/range: #{channel}/#{analog_min}/#{analog_range}")
+                  # Logger.debug("ch/min/range: #{channel}/#{analog_min}/#{analog_range}")
 
                   value =
                     (multiplier * (2 * (value - analog_min) / analog_range - 1))
@@ -164,7 +164,7 @@ defmodule ViaInputEvent.Joystick do
   def handle_info(@publish_joystick_loop, state) do
     channel_values = get_channels(state.joystick_channels, state.num_channels)
     # Logger.debug("#{ViaUtils.Format.eftb_map(state.joystick_channels, 3)}")
-    Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
+    # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
 
     Enum.each(state.subscriber_groups, fn group ->
       ViaUtils.Comms.send_local_msg_to_group(

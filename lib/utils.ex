@@ -1,7 +1,7 @@
 defmodule ViaInputEvent.Utils do
   require Logger
 
-  @devices_to_ignore_for_keyboard ["raspberry", "ergo", "frsky", "spektrum"]
+  @devices_to_ignore_for_keyboard ["raspberry", "ergo", "frsky", "spektrum", "touch"]
 
   def find_device(device_names) when is_list(device_names) do
     {[device_name], remaining_devices} = Enum.split(device_names, 1)
