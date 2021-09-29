@@ -1,22 +1,23 @@
 defmodule ViaInputEvent.Utils do
   require Logger
 
-  @devices_to_ignore_for_keyboard ["raspberry", "ergo", "frsky", "spektrum", "touch"]
-
   def find_device(device_names) when is_list(device_names) do
     {[device_name], remaining_devices} = Enum.split(device_names, 1)
     Logger.warn("seatch for #{device_name}")
+
     case find_device(device_name) do
       {"", nil} ->
-        if Enum.empty?(remaining_devices), do: {"","", nil}, else: find_device(remaining_devices)
+        if Enum.empty?(remaining_devices), do: {"", "", nil}, else: find_device(remaining_devices)
 
-      {input_name, device_info} -> {input_name, device_name, device_info}
+      {input_name, device_info} ->
+        {input_name, device_name, device_info}
     end
   end
 
   def find_device(device_name, devices \\ InputEvent.enumerate()) do
     {[{input_name, device_info}], remaining_devices} = Enum.split(devices, 1)
     device_name = String.downcase(device_name)
+
     cond do
       String.contains?(String.downcase(device_info.name), device_name) ->
         Logger.debug("Found #{inspect(device_name)} at #{input_name}")
@@ -48,21 +49,15 @@ defmodule ViaInputEvent.Utils do
     end
   end
 
-  @spec find_keyboard() :: tuple()
-  def find_keyboard() do
+  @spec find_keyboard(list()) :: tuple()
+  def find_keyboard(devices_to_ignore \\ []) do
     all_devices =
       Enum.reduce(InputEvent.enumerate(), [], fn {event, device}, acc ->
         device_name = String.downcase(device.name)
 
-        if String.contains?(device_name, @devices_to_ignore_for_keyboard),
+        if String.contains?(device_name, devices_to_ignore),
           do: acc,
           else: acc ++ [{event, device}]
-
-        # cond do
-        #   String.contains?(device_name, "raspberry") -> acc
-        #   String.contains?(device_name, "ergo") -> acc
-        #   true -> acc ++ [{event, device}]
-        # end
       end)
 
     if Enum.empty?(all_devices) do

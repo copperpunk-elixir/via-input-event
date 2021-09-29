@@ -7,7 +7,7 @@ defmodule ViaInputEvent.Keyboard do
   @publish_keyboard_loop :publish_keyboard_loop
   @wait_for_all_channels_loop :wait_for_all_channels_loop
   @remote_input_found_group :remote_input_found
-
+  @default_devices_to_ignore ["raspberry", "ergo", "frsky", "spektrum", "touch"]
   def start_link(config) do
     ViaUtils.Process.start_link_redundant(GenServer, __MODULE__, config, __MODULE__)
   end
@@ -17,11 +17,13 @@ defmodule ViaInputEvent.Keyboard do
     ViaUtils.Comms.Supervisor.start_operator(__MODULE__)
     channel_map = Keyword.fetch!(config, :channel_map)
 
+    devices_to_ignore = Keyword.get(config, :devices_to_ignore, @default_devices_to_ignore)
+
     connect_keyboard_timer =
       ViaUtils.Process.start_loop(
         self(),
         1000,
-        @connect_to_keyboard_loop
+        {@connect_to_keyboard_loop, devices_to_ignore}
       )
 
     state = %{
@@ -42,8 +44,8 @@ defmodule ViaInputEvent.Keyboard do
     {:ok, state}
   end
 
-  def handle_info(@connect_to_keyboard_loop, state) do
-    {keyboard_input_name, keyboard} = ViaInputEvent.Utils.find_keyboard()
+  def handle_info({@connect_to_keyboard_loop, devices_to_ignore}, state) do
+    {keyboard_input_name, keyboard} = ViaInputEvent.Utils.find_keyboard(devices_to_ignore)
 
     state =
       if is_nil(keyboard) do
