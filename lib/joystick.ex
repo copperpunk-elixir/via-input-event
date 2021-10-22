@@ -83,7 +83,7 @@ defmodule ViaInputEvent.Joystick do
 
         connect_joystick_timer = ViaUtils.Process.stop_loop(state.connect_joystick_timer)
 
-        ViaUtils.Comms.send_local_msg_to_group(
+        ViaUtils.Comms.cast_local_msg_to_group(
           __MODULE__,
           @remote_input_found_group,
           @remote_input_found_group,
@@ -167,7 +167,7 @@ defmodule ViaInputEvent.Joystick do
     # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
 
     Enum.each(state.subscriber_groups, fn group ->
-      ViaUtils.Comms.send_local_msg_to_group(
+      ViaUtils.Comms.cast_local_msg_to_group(
         __MODULE__,
         {group, channel_values},
         self()

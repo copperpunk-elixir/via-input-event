@@ -41,7 +41,7 @@ defmodule ViaInputEvent.MixProject do
     [
       {:ex_doc, "~> 0.24", only: :dev, runtime: false},
       {:input_event, "~> 0.4.3"},
-      {:via_utils, git: "https://github.com/copperpunk-elixir/via-utils.git", tag: "v0.1.4-alpha"}
+      {:via_utils, "~> 0.2.0"}
     ]
   end
 

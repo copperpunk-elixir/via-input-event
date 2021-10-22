@@ -34,6 +34,7 @@ defmodule ViaInputEvent.Keyboard do
       key_collections: Keyword.fetch!(config, :key_collections),
       key_map: Keyword.fetch!(config, :key_map),
       keyboard_channels: Keyword.get(config, :default_values, %{}),
+      publish_keyboard_goals: true,
       publish_keyboard_loop_interval_ms:
         Keyword.fetch!(config, :publish_keyboard_loop_interval_ms),
       subscriber_groups: Keyword.fetch!(config, :subscriber_groups),
@@ -59,7 +60,7 @@ defmodule ViaInputEvent.Keyboard do
 
         connect_keyboard_timer = ViaUtils.Process.stop_loop(state.connect_keyboard_timer)
 
-        ViaUtils.Comms.send_local_msg_to_group(
+        ViaUtils.Comms.cast_local_msg_to_group(
           __MODULE__,
           @remote_input_found_group,
           @remote_input_found_group,
@@ -144,16 +145,24 @@ defmodule ViaInputEvent.Keyboard do
 
   @impl GenServer
   def handle_info(@publish_keyboard_loop, state) do
-    channel_values = get_channels(state.keyboard_channels, state.num_channels)
-    # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
+    %{keyboard_channels: keyboard_channels, num_channels: num_channels, channel_map: channel_map} =
+      state
 
-    Enum.each(state.subscriber_groups, fn group ->
-      ViaUtils.Comms.send_local_msg_to_group(
-        __MODULE__,
-        {group, channel_values},
-        self()
-      )
-    end)
+    channel_values = get_channels(keyboard_channels, num_channels)
+    # Logger.debug("#{ViaUtils.Format.eftb_list(channel_values, 3)}")
+    %{acm: acm_channel} = channel_map
+    acm_value = Map.fetch!(keyboard_channels, acm_channel)
+    # Logger.debug("ACM value: #{acm_value}")
+
+    if acm_value == 0 do
+      Enum.each(state.subscriber_groups, fn group ->
+        ViaUtils.Comms.cast_local_msg_to_group(
+          __MODULE__,
+          {group, channel_values},
+          self()
+        )
+      end)
+    end
 
     {:noreply, state}
   end
