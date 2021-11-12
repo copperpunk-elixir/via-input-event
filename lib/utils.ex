@@ -51,14 +51,9 @@ defmodule ViaInputEvent.Utils do
 
   @spec find_keyboard(list()) :: tuple()
   def find_keyboard(devices_to_ignore \\ []) do
-    all_devices =
-      Enum.reduce(InputEvent.enumerate(), [], fn {event, device}, acc ->
-        device_name = String.downcase(device.name)
+    all_devices = get_all_devices(devices_to_ignore)
 
-        if String.contains?(device_name, devices_to_ignore),
-          do: acc,
-          else: acc ++ [{event, device}]
-      end)
+    # Logger.debug("all devs: #{inspect(all_devices)}")
 
     if Enum.empty?(all_devices) do
       {"", nil}
@@ -67,23 +62,38 @@ defmodule ViaInputEvent.Utils do
     end
   end
 
-  def find_keyboard(devices, current_device, longest_key_list) do
-    {[{input_name, device}], remaining_devices} = Enum.split(devices, 1)
-
+  def find_keyboard(devices, current_best_device, longest_key_list) do
+    {[new_device], remaining_devices} = Enum.split(devices, 1)
+    {_input_name, device} = new_device
     num_keys = device.report_info |> Keyword.get(:ev_key, []) |> length()
+    # Logger.debug("#{device.name} at #{input_name} with #{num_keys}")
+    # Logger.debug("current dev#{inspect(current_best_device)}")
+
+    # Logger.debug("#{inspect(remaining_devices)}")
+    device_has_most_keys = num_keys > longest_key_list
 
     cond do
-      num_keys > longest_key_list ->
-        # Logger.debug("Found #{device_name} at #{input_name}")
-        find_keyboard(remaining_devices, {input_name, device}, num_keys)
-
       Enum.empty?(remaining_devices) ->
-        current_device
+        if device_has_most_keys, do: new_device, else: current_best_device
+
+      num_keys > longest_key_list ->
+        # Logger.debug("Found #{device.name} at #{input_name}")
+        find_keyboard(remaining_devices, new_device, num_keys)
 
       # Logger.debug("device not found")
 
       true ->
-        find_keyboard(remaining_devices, current_device, longest_key_list)
+        find_keyboard(remaining_devices, current_best_device, longest_key_list)
     end
+  end
+
+  def get_all_devices(devices_to_ignore \\ []) do
+    Enum.reduce(InputEvent.enumerate(), [], fn {event, device}, acc ->
+      device_name = String.downcase(device.name)
+
+      if String.contains?(device_name, devices_to_ignore),
+        do: acc,
+        else: acc ++ [{event, device}]
+    end)
   end
 end

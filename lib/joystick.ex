@@ -86,7 +86,6 @@ defmodule ViaInputEvent.Joystick do
         ViaUtils.Comms.cast_local_msg_to_group(
           __MODULE__,
           @remote_input_found_group,
-          @remote_input_found_group,
           self()
         )
 

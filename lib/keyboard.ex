@@ -63,7 +63,6 @@ defmodule ViaInputEvent.Keyboard do
         ViaUtils.Comms.cast_local_msg_to_group(
           __MODULE__,
           @remote_input_found_group,
-          @remote_input_found_group,
           self()
         )
 
@@ -96,6 +95,7 @@ defmodule ViaInputEvent.Keyboard do
                                                                    {acc_keyboard_channels,
                                                                     acc_key_collections} ->
         {type, key, pressed} = event
+        # Logger.debug("event rx: #{type}/#{key}")
 
         if type == :ev_key and pressed == 1 do
           key_operations = Map.get(key_map, key, [])
